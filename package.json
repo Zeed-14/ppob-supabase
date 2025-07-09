@@ -1,0 +1,8 @@
+{
+  "dependencies": {
+    "insta": "^0.0.1"
+  },
+  "devDependencies": {
+    "supabase": "^2.30.4"
+  }
+}
