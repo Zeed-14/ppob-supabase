@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aplikasi PPOB - Digiflazz & Supabase</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Supabase JS Client -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- MD5 library for Digiflazz signature -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/blueimp-md5/2.19.0/js/md5.min.js"></script>
+
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-radius: 50%;
+            border-top: 4px solid #3498db;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .modal-backdrop { transition: opacity 0.3s ease; }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <div class="container mx-auto p-4 md:p-8 max-w-4xl">
+        <header class="text-center mb-8">
+            <h1 class="text-4xl font-bold text-blue-600">PPOB Sederhana</h1>
+            <p class="text-gray-500 mt-2">Integrasi Digiflazz & Supabase</p>
+        </header>
+
+        <!-- Balance Card -->
+        <div class="bg-white p-6 rounded-xl shadow-md mb-8 flex items-center justify-between">
+            <div>
+                <p class="text-sm text-gray-500">Sisa Saldo Digiflazz</p>
+                <p id="balance-display" class="text-2xl font-bold">Rp 0</p>
+            </div>
+            <div id="balance-loader" class="loader hidden"></div>
+        </div>
+
+        <!-- Transaction Form -->
+        <div class="bg-white p-8 rounded-xl shadow-md mb-8">
+            <h2 class="text-2xl font-semibold mb-6 border-b pb-4">Buat Transaksi Baru</h2>
+            <form id="transaction-form" class="space-y-6">
+                <div>
+                    <label for="category" class="block text-sm font-medium text-gray-700 mb-1">Kategori Produk</label>
+                    <select id="category" name="category" class="w-full p-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                        <option value="">-- Pilih Kategori --</option>
+                        <option value="pulsa">Pulsa</option>
+                        <option value="paket-data">Paket Data</option>
+                        <option value="pln">Token Listrik (PLN)</option>
+                        <option value="game">Voucher Game</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label for="customer-no" class="block text-sm font-medium text-gray-700 mb-1">Nomor Tujuan / ID Pelanggan</label>
+                    <input type="text" id="customer-no" name="customer-no" class="w-full p-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500" placeholder="Contoh: 081234567890">
+                </div>
+
+                <div>
+                    <label for="product-list" class="block text-sm font-medium text-gray-700 mb-1">Pilih Produk</label>
+                    <div class="flex items-center space-x-2">
+                        <select id="product-list" name="product-list" class="w-full p-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500" disabled>
+                            <option>Pilih kategori terlebih dahulu</option>
+                        </select>
+                        <div id="product-loader" class="loader hidden"></div>
+                    </div>
+                </div>
+
+                <button type="submit" class="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-4 focus:ring-blue-300 transition duration-300 flex items-center justify-center space-x-2">
+                    <i class="fas fa-bolt"></i>
+                    <span>Beli Sekarang</span>
+                </button>
+            </form>
+        </div>
+
+        <!-- Transaction History -->
+        <div class="bg-white p-8 rounded-xl shadow-md">
+            <h2 class="text-2xl font-semibold mb-6 border-b pb-4">Riwayat Transaksi</h2>
+            <div id="history-loader" class="flex justify-center py-4"><div class="loader"></div></div>
+            <div id="history-container" class="space-y-4">
+                <p id="no-history" class="text-center text-gray-500 hidden">Belum ada riwayat transaksi.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal for messages -->
+    <div id="message-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 hidden modal-backdrop">
+        <div class="bg-white rounded-lg shadow-xl p-8 max-w-sm w-full text-center transform transition-all scale-95 opacity-0" id="modal-content">
+            <div id="modal-icon" class="mx-auto mb-4 w-16 h-16 rounded-full flex items-center justify-center"></div>
+            <h3 id="modal-title" class="text-xl font-bold mb-2"></h3>
+            <p id="modal-message" class="text-gray-600"></p>
+            <button id="modal-close-btn" class="mt-6 bg-blue-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-4 focus:ring-blue-300">Tutup</button>
+        </div>
+    </div>
+
+<script type="module">
+    // KONFIGURASI
+    const SUPABASE_URL = 'https://cvvpkngjxzdurjmcpknt.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN2dnBrbmdqeHpkdXJqbWNwa250Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTIwNjMyMDMsImV4cCI6MjA2NzYzOTIwM30.P6yhKbTtSwRu60-iamS4vYGaMP2Vb05-z7aIpIOYbto';
+    const PROXY_URL = 'GANTI_DENGAN_URL_EDGE_FUNCTION_ANDA'; // <-- INI AKAN KITA ISI NANTI
+
+    let supabase;
+    try {
+        supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    } catch (error) {
+        console.error("Error initializing Supabase:", error.message);
+        showModal('error', 'Kesalahan Konfigurasi', 'Gagal menginisialisasi Supabase.');
+    }
+
+    // === DOM Elements ===
+    const balanceDisplay = document.getElementById('balance-display');
+    const balanceLoader = document.getElementById('balance-loader');
+    const categorySelect = document.getElementById('category');
+    const customerNoInput = document.getElementById('customer-no');
+    const productListSelect = document.getElementById('product-list');
+    const productLoader = document.getElementById('product-loader');
+    const transactionForm = document.getElementById('transaction-form');
+    const historyContainer = document.getElementById('history-container');
+    const historyLoader = document.getElementById('history-loader');
+    const noHistoryMsg = document.getElementById('no-history');
+    const messageModal = document.getElementById('message-modal');
+    const modalContent = document.getElementById('modal-content');
+    const modalIcon = document.getElementById('modal-icon');
+    const modalTitle = document.getElementById('modal-title');
+    const modalMessage = document.getElementById('modal-message');
+    const modalCloseBtn = document.getElementById('modal-close-btn');
+
+    // === API Calls (via Proxy) ===
+    async function callDigiflazzAPI(command, body = {}) {
+        if (PROXY_URL.includes('GANTI_DENGAN')) {
+            showModal('error', 'Konfigurasi Belum Lengkap', 'URL Proxy Edge Function belum diatur.');
+            return Promise.reject('Konfigurasi proxy belum lengkap.');
+        }
+        const response = await fetch(PROXY_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ command, ...body })
+        });
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    }
+    
+    async function checkBalance() {
+        balanceLoader.classList.remove('hidden');
+        try {
+            const response = await callDigiflazzAPI('cek-saldo');
+            const balance = response.data.deposit;
+            balanceDisplay.textContent = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(balance);
+        } catch (error) {
+            console.error('Error fetching balance:', error);
+            balanceDisplay.textContent = 'Gagal memuat';
+            showModal('error', 'Gagal Memuat Saldo', error.message);
+        } finally {
+            balanceLoader.classList.add('hidden');
+        }
+    }
+
+    async function fetchProducts(category) {
+        if (!category) {
+            productListSelect.innerHTML = '<option>Pilih kategori</option>';
+            productListSelect.disabled = true;
+            return;
+        }
+        productListSelect.disabled = true;
+        productLoader.classList.remove('hidden');
+        productListSelect.innerHTML = '<option>Memuat...</option>';
+        const commandMap = {'pulsa': 'harga-pulsa', 'paket-data': 'harga-data', 'pln': 'harga-pln', 'game': 'harga-game'};
+        try {
+            const response = await callDigiflazzAPI(commandMap[category]);
+            if (response.data && response.data.length > 0) renderProductList(response.data);
+            else productListSelect.innerHTML = '<option>Produk tidak ada</option>';
+        } catch (error) {
+            console.error('Error fetching products:', error);
+            productListSelect.innerHTML = '<option>Gagal memuat</option>';
+            showModal('error', 'Gagal Memuat Produk', error.message);
+        } finally {
+            productListSelect.disabled = false;
+            productLoader.classList.add('hidden');
+        }
+    }
+
+    async function createTransaction(sku, customerNo) {
+        const ref_id = `trx-${Date.now()}`;
+        showModal('loading', 'Memproses Transaksi', 'Mohon tunggu...');
+        try {
+            const response = await callDigiflazzAPI('topup', {
+                buyer_sku_code: sku,
+                customer_no: customerNo,
+                ref_id: ref_id,
+            });
+            if (response.data.status === 'Gagal') throw new Error(response.data.message);
+            showModal('success', 'Transaksi Dikirim', `Status: ${response.data.status}. ${response.data.message}`);
+            return { ...response.data, customer_no: customerNo };
+        } catch (error) {
+            console.error('Transaction failed:', error);
+            showModal('error', 'Transaksi Gagal', error.message || 'Terjadi kesalahan.');
+            return null;
+        }
+    }
+
+    // === Supabase Functions ===
+    async function fetchHistory() {
+        if (!supabase) return;
+        historyLoader.classList.remove('hidden');
+        noHistoryMsg.classList.add('hidden');
+        historyContainer.innerHTML = '';
+        try {
+            const { data, error } = await supabase.from('transactions').select('*').order('created_at', { ascending: false }).limit(10);
+            if (error) throw error;
+            if (data.length > 0) renderHistory(data);
+            else noHistoryMsg.classList.remove('hidden');
+        } catch (error) {
+            console.error('Error fetching history:', error);
+            historyContainer.innerHTML = '<p class="text-center text-red-500">Gagal memuat riwayat.</p>';
+        } finally {
+            historyLoader.classList.add('hidden');
+        }
+    }
+
+    async function saveTransaction(trxData, productName) {
+        if (!supabase) return;
+        try {
+            const { error } = await supabase.from('transactions').insert([{
+                ref_id: trxData.ref_id, product_name: productName, customer_no: trxData.customer_no,
+                status: trxData.status, message: trxData.message, price: trxData.price, sn: trxData.sn
+            }]);
+            if (error) throw error;
+            fetchHistory();
+            checkBalance();
+        } catch (error) {
+            console.error('Error saving transaction:', error);
+            showModal('error', 'Gagal Menyimpan', 'Gagal menyimpan riwayat ke database.');
+        }
+    }
+
+    // === UI Rendering ===
+    function renderProductList(products) {
+        productListSelect.innerHTML = '<option value="">-- Pilih Produk --</option>';
+        products.forEach(p => {
+            const price = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(p.price);
+            const option = document.createElement('option');
+            option.value = p.buyer_sku_code;
+            option.textContent = `${p.product_name} (${price})`;
+            option.dataset.productName = p.product_name;
+            option.dataset.price = p.price;
+            productListSelect.appendChild(option);
+        });
+    }
+
+    function renderHistory(history) {
+        historyContainer.innerHTML = '';
+        history.forEach(item => {
+            const statusColor = {'Pending': 'bg-yellow-100 text-yellow-800', 'Sukses': 'bg-green-100 text-green-800', 'Gagal': 'bg-red-100 text-red-800'}[item.status] || 'bg-gray-100';
+            const date = new Date(item.created_at).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' });
+            historyContainer.innerHTML += `
+                <div class="border rounded-lg p-4 flex justify-between items-center">
+                    <div>
+                        <p class="font-bold">${item.product_name}</p>
+                        <p class="text-sm text-gray-600">No: ${item.customer_no}</p>
+                        <p class="text-xs text-gray-400 mt-1">${date}</p>
+                    </div>
+                    <span class="text-sm font-semibold px-2.5 py-0.5 rounded-full ${statusColor}">${item.status}</span>
+                </div>`;
+        });
+    }
+    
+    function showModal(type, title, message) {
+        const icons = { success: '<i class="fas fa-check text-4xl text-white"></i>', error: '<i class="fas fa-times text-4xl text-white"></i>', loading: '<div class="loader border-t-white w-8 h-8"></div>'};
+        const colors = { success: 'bg-green-500', error: 'bg-red-500', loading: 'bg-blue-500' };
+        modalIcon.innerHTML = icons[type];
+        modalIcon.className = `mx-auto mb-4 w-16 h-16 rounded-full flex items-center justify-center ${colors[type]}`;
+        modalTitle.textContent = title;
+        modalMessage.textContent = message;
+        modalCloseBtn.style.display = type === 'loading' ? 'none' : 'inline-block';
+        messageModal.classList.remove('hidden');
+        setTimeout(() => { messageModal.classList.remove('opacity-0'); modalContent.classList.remove('scale-95', 'opacity-0'); }, 10);
+    }
+
+    function hideModal() {
+        messageModal.classList.add('opacity-0');
+        modalContent.classList.add('scale-95', 'opacity-0');
+        setTimeout(() => { messageModal.classList.add('hidden'); }, 300);
+    }
+
+    // === Event Listeners ===
+    document.addEventListener('DOMContentLoaded', () => { if (supabase) { checkBalance(); fetchHistory(); } });
+    categorySelect.addEventListener('change', (e) => fetchProducts(e.target.value));
+    transactionForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const sku = productListSelect.value;
+        const customerNo = customerNoInput.value;
+        const selected = productListSelect.options[productListSelect.selectedIndex];
+        if (!sku || !customerNo) return showModal('error', 'Data Tidak Lengkap', 'Pilih produk dan isi nomor tujuan.');
+        const trxResult = await createTransaction(sku, customerNo);
+        if (trxResult && supabase) {
+            const dataToSave = { ...trxResult, product_name: selected.dataset.productName, price: parseInt(selected.dataset.price) };
+            await saveTransaction(dataToSave, selected.dataset.productName);
+        }
+    });
+    modalCloseBtn.addEventListener('click', hideModal);
+    messageModal.addEventListener('click', (e) => { if (e.target === messageModal) hideModal(); });
+</script>
+
+</body>
+</html>
