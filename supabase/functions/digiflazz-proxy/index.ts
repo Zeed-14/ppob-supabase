@@ -1,6 +1,6 @@
-// Menggunakan versi terbaru dari Deno Standard Library
+// Menggunakan versi terbaru dan memperbaiki path import
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
-import { Md5 } from "https://deno.land/std@0.224.0/hash/md5.ts";
+import { Md5 } from "https://deno.land/std@0.224.0/hash/mod.ts"; // PERUBAHAN DI SINI
 
 const DIGIFLAZZ_API_URL = "https://api.digiflazz.com/v1/";
 
