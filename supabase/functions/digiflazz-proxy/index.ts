@@ -1,5 +1,6 @@
-import { serve } from "https://deno.land/std@0.217.0/http/server.ts";
-import { Md5 } from "https://deno.land/std@0.217.0/hash/md5.ts";
+// Menggunakan versi terbaru dari Deno Standard Library
+import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
+import { Md5 } from "https://deno.land/std@0.224.0/hash/md5.ts";
 
 const DIGIFLAZZ_API_URL = "https://api.digiflazz.com/v1/";
 
