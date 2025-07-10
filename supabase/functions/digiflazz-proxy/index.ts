@@ -21,8 +21,8 @@ serve(async (req) => {
 
   try {
     // Mengambil kredensial Digiflazz dari environment variables
-    const DIGIFLAZZ_USERNAME = Deno.env.get("DIGIFLAZZ_USERNAME");
-    const DIGIFLAZZ_API_KEY = Deno.env.get("DIGIFLAZZ_API_KEY");
+    const DIGIFLAZZ_USERNAME = Deno.env.get("wutuvao6VBRo");
+    const DIGIFLAZZ_API_KEY = Deno.env.get("dda062ac-93c5-5f89-87e1-087f5075cc47");
 
     if (!DIGIFLAZZ_USERNAME || !DIGIFLAZZ_API_KEY) {
       console.error("Kesalahan Kredensial: DIGIFLAZZ_USERNAME atau DIGIFLAZZ_API_KEY tidak diatur.");
