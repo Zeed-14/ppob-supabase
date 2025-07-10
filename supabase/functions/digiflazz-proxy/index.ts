@@ -1,98 +1,129 @@
-// Menggunakan versi terbaru dan memperbaiki path import
-import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
-import { Md5 } from "https://deno.land/std@0.224.0/hash/mod.ts"; // PERUBAHAN DI SINI
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { crypto } from "https://deno.land/std@0.168.0/crypto/mod.ts";
 
-const DIGIFLAZZ_API_URL = "https://api.digiflazz.com/v1/";
+console.log("Fungsi digiflazz-proxy diinisialisasi.");
 
+// Header CORS untuk memungkinkan akses dari browser
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-serve(async (req: Request) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+// Fungsi utama yang akan dijalankan oleh Supabase
+serve(async (req) => {
+  const requestTimestamp = new Date().toISOString();
+  console.log(`[${requestTimestamp}] Menerima request: ${req.method}`);
+
+  // Menangani preflight request untuk CORS
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders });
   }
 
   try {
-    const username = Deno.env.get("DIGIFLAZZ_USERNAME");
-    const apiKey = Deno.env.get("DIGIFLAZZ_API_KEY");
+    // Mengambil kredensial Digiflazz dari environment variables
+    const DIGIFLAZZ_USERNAME = Deno.env.get("DIGIFLAZZ_USERNAME");
+    const DIGIFLAZZ_API_KEY = Deno.env.get("DIGIFLAZZ_API_KEY");
 
-    if (!username || !apiKey) {
-      throw new Error("Kredensial Digiflazz tidak ditemukan di Supabase secrets.");
+    if (!DIGIFLAZZ_USERNAME || !DIGIFLAZZ_API_KEY) {
+      console.error("Kesalahan Kredensial: DIGIFLAZZ_USERNAME atau DIGIFLAZZ_API_KEY tidak diatur.");
+      throw new Error("Kredensial Digiflazz tidak diatur di environment variables.");
     }
+    console.log("Kredensial Digiflazz berhasil dimuat.");
 
-    const { command, ...restOfBody } = await req.json();
-    let endpoint = "";
-    let body: Record<string, unknown> = {};
+    // Mengambil body dari request yang dikirim client
+    const requestBody = await req.json();
+    const { cmd, ...rest } = requestBody;
+    console.log(`Perintah diterima: '${cmd}' dengan data:`, rest);
+    
+    let apiUrl = '';
+    let apiBody = '';
 
-    switch (command) {
-      case "cek-saldo": {
-        endpoint = "cek-saldo";
-        const sign = new Md5().update(username + apiKey + "depo").toString();
-        body = {
-          cmd: "deposit",
-          username: username,
-          sign: sign,
-        };
+    // Menentukan aksi berdasarkan `cmd` dari client
+    switch (cmd) {
+      case 'balance': {
+        apiUrl = 'https://api.digiflazz.com/v1/cek-saldo';
+        const sign = crypto.createHash('md5').update(`${DIGIFLAZZ_USERNAME}${DIGIFLAZZ_API_KEY}depo`).digest('hex');
+        console.log(`Signature untuk 'balance': ${sign}`);
+        apiBody = JSON.stringify({
+          cmd: 'deposit',
+          username: DIGIFLAZZ_USERNAME,
+          sign,
+        });
         break;
       }
-      case "harga-pulsa":
-      case "harga-data":
-      case "harga-pln":
-      case "harga-game": {
-        endpoint = "price-list";
-        const sign = new Md5().update(username + apiKey + "pricelist").toString();
-        body = {
-          cmd: "prepaid",
-          username: username,
+
+      case 'prepaid': {
+        apiUrl = 'https://api.digiflazz.com/v1/price-list';
+        const sign = crypto.createHash('md5').update(`${DIGIFLAZZ_USERNAME}${DIGIFLAZZ_API_KEY}pricelist`).digest('hex');
+        console.log(`Signature untuk 'prepaid': ${sign}`);
+        apiBody = JSON.stringify({
+          cmd: 'price-list',
+          username: DIGIFLAZZ_USERNAME,
           sign: sign,
-        };
+        });
         break;
       }
-      case "topup": {
-        endpoint = "transaction";
-        const refId = restOfBody.ref_id as string;
-        if (!refId) {
-          throw new Error("ref_id wajib ada untuk topup.");
+
+      case 'topup': {
+        apiUrl = 'https://api.digiflazz.com/v1/transaction';
+        const { buyer_sku_code, customer_no, ref_id } = rest;
+
+        if (!buyer_sku_code || !customer_no || !ref_id) {
+          console.error("Input tidak lengkap untuk 'topup':", rest);
+          return new Response(JSON.stringify({ error: 'buyer_sku_code, customer_no, dan ref_id wajib diisi.' }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            status: 400,
+          });
         }
-        const sign = new Md5().update(username + apiKey + refId).toString();
-        body = {
-          username: username,
-          buyer_sku_code: restOfBody.buyer_sku_code,
-          customer_no: restOfBody.customer_no,
-          ref_id: refId,
-          sign: sign,
-        };
+        
+        const sign = crypto.createHash('md5').update(`${DIGIFLAZZ_USERNAME}${DIGIFLAZZ_API_KEY}${ref_id}`).digest('hex');
+        console.log(`Signature untuk 'topup' (ref_id: ${ref_id}): ${sign}`);
+        apiBody = JSON.stringify({
+          username: DIGIFLAZZ_USERNAME,
+          buyer_sku_code,
+          customer_no,
+          ref_id,
+          sign,
+        });
         break;
       }
+
       default:
-        throw new Error(`Perintah tidak dikenal: ${command}`);
+        console.error(`Perintah tidak valid diterima: ${cmd}`);
+        throw new Error('Perintah tidak valid.');
     }
 
-    const digiflazzResponse = await fetch(`${DIGIFLAZZ_API_URL}${endpoint}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+    console.log(`Mengirim request ke Digiflazz URL: ${apiUrl}`);
+    console.log(`Body yang dikirim: ${apiBody}`);
+
+    // Melakukan request ke API Digiflazz
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: apiBody,
     });
+    
+    const responseText = await response.text();
+    console.log(`Respon dari Digiflazz (status: ${response.status}):`, responseText);
 
-    if (!digiflazzResponse.ok) {
-      const errorBody = await digiflazzResponse.text();
-      console.error("Digiflazz API Error:", errorBody);
-      throw new Error(`Digiflazz API error: status ${digiflazzResponse.status}`);
+    if (!response.ok) {
+      throw new Error(`Request ke Digiflazz gagal dengan status: ${response.status}. Body: ${responseText}`);
     }
 
-    const data = await digiflazzResponse.json();
+    const data = JSON.parse(responseText);
 
+    // Mengembalikan data dari Digiflazz ke client
     return new Response(JSON.stringify(data), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: 200,
     });
+
   } catch (error) {
-    console.error(error);
-    return new Response(JSON.stringify({ error: error.message }), {
+    // Menangani error dan mengembalikannya ke client
+    console.error("Terjadi error di dalam fungsi:", error.message);
+    return new Response(JSON.stringify({ error: error.message, stack: error.stack }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 });
